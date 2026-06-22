@@ -1,174 +1,224 @@
-# Day 18 — Lakehouse Lab (Track 2)
+# Ngày 18 — Bài lab Lakehouse (Track 2)
 
-Lab cho **AICB-P2T2 · Ngày 18 · Data Lakehouse Architecture**.
-Build Bronze → Silver → Gold pipeline với Delta Lake.
+Đây là bài lab cho **AICB-P2T2 · Ngày 18 · Data Lakehouse Architecture**.
+Trong bài này, mình sẽ tập xây một pipeline đơn giản theo mô hình
+**Bronze → Silver → Gold** bằng Delta Lake.
 
-**Hai paths để chọn:**
+Nếu bạn mới học Lakehouse, hãy hiểu nhanh như sau:
 
-| Path | Stack | Setup | RAM | Khi nào dùng |
+- **Bronze**: nơi lưu dữ liệu thô, gần như giữ nguyên lúc nhận vào.
+- **Silver**: nơi dữ liệu đã được làm sạch, ép kiểu, loại trùng.
+- **Gold**: nơi dữ liệu đã được tổng hợp để làm báo cáo hoặc dashboard.
+
+## Chọn cách chạy bài lab
+
+Repo này có 2 cách chạy. Nếu chưa quen Spark hoặc máy không quá mạnh, nên chọn
+**Lightweight**.
+
+| Cách chạy | Công cụ dùng | Cài đặt | RAM cần | Khi nào nên dùng |
 |---|---|---|---|---|
-| **Lightweight (default)** | `deltalake` + DuckDB + Polars | `make setup` (~10 s) | ~500 MB | Hầu hết học viên — laptop yếu, mạng chậm, muốn focus vào concept |
-| **Spark (Docker)** | PySpark + delta-spark + MinIO | `make spark-up` (~3 min) | ~4 GB | Học viên muốn trải nghiệm Spark API y hệt production Databricks |
+| **Lightweight (mặc định)** | `deltalake` + DuckDB + Polars | `make setup` (~10 giây) | ~500 MB | Phù hợp với hầu hết học viên, nhất là khi muốn tập trung hiểu concept |
+| **Spark (Docker)** | PySpark + delta-spark + MinIO | `make spark-up` (~3 phút) | ~4 GB | Dành cho bạn muốn thử API Spark gần giống môi trường production |
 
-> Cả hai paths viết ra **cùng một Delta Lake on-disk format** — bạn có thể đổi
-> giữa hai paths bất cứ lúc nào, các tables vẫn đọc được.
+> Cả hai cách đều ghi ra **cùng một định dạng Delta Lake trên ổ đĩa**.
+> Vì vậy, dữ liệu tạo bằng cách này vẫn có thể đọc bằng cách kia.
 
 ---
 
-## Quick Start — Lightweight (recommended)
+## Bắt đầu nhanh — Lightweight (khuyến nghị)
 
 ```bash
 git clone https://github.com/VinUni-AI20k/Day18-Track2-Lakehouse-Lab.git
 cd Day18-Track2-Lakehouse-Lab
-make setup    # ~10 s with pip, ~2 s with uv
-make smoke    # ~5 s — verifies the stack works
-make lab      # opens http://localhost:8888
+make setup    # cài môi trường, khoảng 10 giây với pip hoặc 2 giây với uv
+make smoke    # kiểm tra nhanh xem môi trường chạy được chưa
+make lab      # mở Jupyter Lab tại http://localhost:8888
 ```
 
-Yêu cầu: **Python 3.10–3.13** (pyarrow chưa có wheel cho 3.14 — `make setup` sẽ báo lỗi rõ ràng nếu bạn dùng 3.14; cài `uv` để tự lấy 3.12). Không cần Docker, không cần Java, không cần MinIO.
+Yêu cầu: **Python 3.10–3.13**.
 
-Khi `make smoke` báo `All checks passed`, mở
-**http://localhost:8888/lab/tree/01_delta_basics.ipynb** và bắt đầu.
+Lưu ý nhỏ cho người mới:
 
-Generate sample data cho NB4:
+- Python 3.14 hiện chưa phù hợp vì `pyarrow` chưa có wheel ổn định cho bản này.
+- Nếu `make setup` báo lỗi Python, có thể cài `uv` để tự lấy Python 3.12.
+- Cách Lightweight không cần Docker, không cần Java, không cần MinIO.
+
+Khi `make smoke` in ra `All checks passed`, mở notebook đầu tiên tại:
+
+**http://localhost:8888/lab/tree/01_delta_basics.ipynb**
+
+Tạo dữ liệu mẫu cho notebook 4:
+
 ```bash
-make data    # 200K rows → _lakehouse/bronze/llm_calls_raw/
+make data    # tạo 200K dòng vào _lakehouse/bronze/llm_calls_raw/
 ```
 
-### Tất cả lệnh `make`
+## Các lệnh `make` cần biết
 
-```
-make setup     Lightweight: tạo venv + install (80 MB)
-make smoke     Lightweight: 5-second smoke test
-make lab       Lightweight: open Jupyter Lab
-make data      Lightweight: generate Bronze sample
-make clean     Lightweight: wipe venv + _lakehouse/
+```text
+make setup     Lightweight: tạo virtual environment và cài thư viện (~80 MB)
+make smoke     Lightweight: kiểm tra nhanh toàn bộ môi trường
+make lab       Lightweight: mở Jupyter Lab
+make data      Lightweight: tạo dữ liệu Bronze mẫu
+make clean     Lightweight: xóa venv và thư mục _lakehouse/
 
-make spark-up      Spark/Docker: start full stack
-make spark-smoke   Spark/Docker: smoke test
-make spark-data    Spark/Docker: generate 1M-row sample
-make spark-down    Spark/Docker: stop (data persists)
-make spark-clean   Spark/Docker: full reset
+make spark-up      Spark/Docker: khởi động toàn bộ stack
+make spark-smoke   Spark/Docker: kiểm tra nhanh trong container Spark
+make spark-data    Spark/Docker: tạo dữ liệu Bronze 1 triệu dòng
+make spark-down    Spark/Docker: dừng stack, dữ liệu vẫn giữ lại
+make spark-clean   Spark/Docker: reset sạch stack Spark
 ```
 
 ---
 
-## Quick Start — Spark/Docker (optional)
+## Bắt đầu nhanh — Spark/Docker (tùy chọn)
 
 ```bash
 make spark-up && make spark-smoke
 ```
 
-Yêu cầu: Docker Desktop ≥ 4.x, RAM ≥ 8 GB free.
-Endpoints + troubleshooting cho path này: xem [`notebooks-spark/README.md`](notebooks-spark/) (notebooks dùng PySpark API).
+Yêu cầu: Docker Desktop ≥ 4.x và còn trống ít nhất 8 GB RAM.
+
+Nếu chọn cách này, xem thêm hướng dẫn và lỗi thường gặp ở
+[`notebooks-spark/README.md`](notebooks-spark/). Các notebook trong thư mục đó
+dùng PySpark API.
 
 ---
 
-## Cấu trúc & tiến trình (cả hai paths)
+## Nội dung từng notebook
 
-| Notebook | Skill | Slide-5 deliverable bullet | Pass when… |
+| Notebook | Kỹ năng luyện tập | Yêu cầu nộp tương ứng | Đạt khi nào |
 |---|---|---|---|
-| `01_delta_basics` | Write/read Delta, schema enforcement, transaction log | NB1 — `_delta_log/` JSON visible + `schema_mode="merge"` evolution | bad-write blocked + `tier` column added on opt-in evolve |
-| `02_optimize_zorder` | Small-file problem; OPTIMIZE + Z-order benchmark | NB2 — speedup ≥ 3× **or** files-pruned ≥ 10× (min/max stats) | notebook prints both metrics; either ≥ target |
-| `03_time_travel` | versionAsOf, RESTORE, MERGE, `history()` | NB3 — MERGE 100K + RESTORE; `history()` ≥ 5 versions (kể cả RESTORE) | final history dump shows v0…v4 |
-| `04_medallion` | LLM-observability Bronze→Silver→Gold pipeline | NB4 — dedup observable + Gold p50/p95/cost qua ≥ 7 ngày | Silver < Bronze rows; Gold has ≥ 7 distinct dates × 3 models |
+| `01_delta_basics` | Ghi/đọc Delta, schema enforcement, transaction log | NB1 — thấy file JSON trong `_delta_log/` và dùng `schema_mode="merge"` | Ghi sai schema bị chặn, sau đó thêm được cột `tier` |
+| `02_optimize_zorder` | Vấn đề nhiều file nhỏ, OPTIMIZE và Z-order | NB2 — speedup ≥ 3× **hoặc** files-pruned ≥ 10× | Notebook in cả hai chỉ số, chỉ cần một chỉ số đạt |
+| `03_time_travel` | `versionAsOf`, RESTORE, MERGE, `history()` | NB3 — MERGE 100K, RESTORE, `history()` có ≥ 5 version | Lịch sử cuối cùng có v0 đến v4, gồm cả RESTORE |
+| `04_medallion` | Pipeline Bronze → Silver → Gold cho LLM observability | NB4 — thấy dedup và Gold có p50/p95/cost qua ≥ 7 ngày | Silver ít dòng hơn Bronze, Gold có ≥ 7 ngày × 3 model |
 
-**Source format:** Notebooks live as Jupytext `.py` files (small, easy to review).
-`make setup` and `make lab` auto-convert to `.ipynb`. Edit `.ipynb` in Jupyter
-and Jupytext keeps both in sync.
+### Về định dạng notebook
 
-**Spark API equivalent:** Each lightweight notebook has a comment showing the
-PySpark equivalent at the top, so you can mentally map between the two paths.
+Notebook gốc được lưu dưới dạng Jupytext `.py`. Cách này giúp file nhỏ và dễ
+review hơn. Khi chạy `make setup` hoặc `make lab`, repo sẽ tự chuyển các file
+`.py` thành `.ipynb`.
 
----
+Nếu bạn chỉnh `.ipynb` trong Jupyter, Jupytext sẽ giúp đồng bộ lại với file
+`.py`.
 
-## Deliverable (4 notebook đã chạy + ảnh chụp)
+### So sánh với Spark
 
-Mapping 1-to-1 với slide-5 deliverable bullets:
-
-1. **NB1** — Delta table created; `_delta_log/00..0.json` visible; bad-schema
-   write blocked; `schema_mode="merge"` adds the `tier` column.
-2. **NB2** — `OPTIMIZE+Z-ORDER` gives **speedup ≥ 3× OR files-pruned ratio ≥ 10×**
-   (notebook prints both — screenshot whichever passes).
-3. **NB3** — `history()` ≥ 5 versions **including the RESTORE row** (the
-   notebook prints history *after* `restore()` — that's the screenshot to take);
-   MERGE 100K succeeds; RESTORE < 30 s and removes `score < 0` rows.
-4. **NB4** — Bronze + Silver + Gold all present on disk; **Silver < Bronze**
-   (dedup observable); Gold spans **≥ 7 dates × 3 models** with populated
-   p50/p95 latency, cost_usd, and error_rate.
-
-Chấm điểm: xem [`rubric.md`](rubric.md). Tổng 100 pts → Track-2 Daily Lab (30%).
+Trong mỗi notebook Lightweight có chú thích API PySpark tương đương. Bạn có thể
+đọc các chú thích đó để hiểu cùng một ý tưởng sẽ viết như thế nào trong Spark.
 
 ---
 
-## Bonus Challenge — Design Your Own Lakehouse (optional, ungraded)
+## Cần nộp gì?
 
-A separate, open-ended **architecture brief**: pick a hard real-world data
-problem (LLM observability at 1B req/day, Decree-13-compliant CDC pipeline,
-trillion-token training corpus, multimodal RAG, FinOps-capped tiering, catalog
-migration, feature-store lineage — or your own), and design the storage
-strategy you'd defend in a design review.
+Bạn cần nộp **4 notebook đã chạy xong và còn output**, kèm bằng chứng ảnh chụp.
+Các yêu cầu khớp với slide deliverable:
 
-**Document is the deliverable**; code is optional. Submissions get a written
-instructor review focused on *judgment*: do your decisions show explicit
-rejected alternatives with reasons? Are your numbers realistic? Did you apply
-Day 18 concepts (medallion, ACID, time travel, catalogs, lineage, security,
-FinOps)?
+1. **NB1** — Tạo được Delta table; thấy file
+   `_delta_log/00000000000000000000.json`; ghi sai schema bị chặn;
+   `schema_mode="merge"` thêm được cột `tier`.
+2. **NB2** — `OPTIMIZE + Z-ORDER` tạo được **speedup ≥ 3× hoặc
+   files-pruned ratio ≥ 10×**. Notebook sẽ in cả hai chỉ số, chụp chỉ số nào đạt.
+3. **NB3** — `history()` có ≥ 5 version, **bao gồm dòng RESTORE**. Notebook in
+   history sau khi chạy `restore()`, đây là phần nên chụp. MERGE 100K chạy
+   thành công; RESTORE < 30 giây và xóa hết dòng có `score < 0`.
+4. **NB4** — Bronze, Silver, Gold đều có trên ổ đĩa; **Silver < Bronze** để
+   chứng minh dedup đã chạy; Gold có **≥ 7 ngày × 3 model** với các cột
+   p50/p95 latency, `cost_usd`, và `error_rate`.
 
-It does not affect the core grade — it's there for students who want to push
-past the rote deliverable and build a portfolio piece. Full brief,
-recommended topics, and self-checklist:
-[`BONUS-CHALLENGE.md`](BONUS-CHALLENGE.md) (tiếng Việt) ·
-[`BONUS-CHALLENGE-EN.md`](BONUS-CHALLENGE-EN.md) (English).
+Xem thang điểm chi tiết trong [`rubric.md`](rubric.md). Tổng điểm là 100, thuộc
+Track-2 Daily Lab (30%).
+
+---
+
+## Bonus Challenge — Thiết kế Lakehouse riêng (tùy chọn, không tính điểm)
+
+Phần này là bài viết mở rộng, không bắt buộc. Bạn chọn một bài toán dữ liệu thực
+tế khó hơn, ví dụ:
+
+- quan sát hệ thống LLM ở quy mô 1 tỷ request/ngày,
+- CDC pipeline tuân thủ Decree 13,
+- kho dữ liệu huấn luyện nghìn tỷ token,
+- multimodal RAG,
+- tối ưu chi phí FinOps,
+- migration catalog,
+- lineage cho feature store.
+
+Deliverable của phần bonus là **một tài liệu thiết kế**. Code là tùy chọn.
+Giảng viên sẽ review phần này theo góc nhìn tư duy thiết kế: bạn có nêu rõ các
+lựa chọn bị loại không, số liệu có thực tế không, và có áp dụng các ý chính của
+Ngày 18 như medallion, ACID, time travel, catalog, lineage, security, FinOps
+không.
+
+Phần bonus **không ảnh hưởng điểm core**. Nó chỉ dành cho bạn nào muốn luyện
+thêm và có thêm một bài portfolio.
+
+Xem đề đầy đủ tại:
+
+- [`BONUS-CHALLENGE.md`](BONUS-CHALLENGE.md) (tiếng Việt)
+- [`BONUS-CHALLENGE-EN.md`](BONUS-CHALLENGE-EN.md) (tiếng Anh)
 
 ---
 
 ## Cấu trúc repo
 
-```
+```text
 .
-├── Makefile              # both paths
-├── README.md             # bạn đang đọc
-├── BONUS-CHALLENGE.md    # optional architecture brief (tiếng Việt)
-├── BONUS-CHALLENGE-EN.md # optional architecture brief (English)
-├── requirements.txt      # lightweight (deltalake + duckdb + polars)
-├── requirements-spark.txt# Spark path
-├── rubric.md             # grading
-├── notebooks/            # ← lightweight path (default)
+├── Makefile              # chứa lệnh cho cả Lightweight và Spark
+├── README.md             # file hướng dẫn bạn đang đọc
+├── BONUS-CHALLENGE.md    # đề bonus tiếng Việt, không bắt buộc
+├── BONUS-CHALLENGE-EN.md # đề bonus tiếng Anh, không bắt buộc
+├── requirements.txt      # thư viện cho Lightweight
+├── requirements-spark.txt# thư viện cho Spark
+├── rubric.md             # thang điểm
+├── notebooks/            # notebook Lightweight, dùng mặc định
 │   ├── 01_delta_basics.py
 │   ├── 02_optimize_zorder.py
 │   ├── 03_time_travel.py
 │   └── 04_medallion.py
-├── notebooks-spark/      # Spark/Docker path (same lessons, PySpark API)
+├── notebooks-spark/      # notebook Spark/Docker, cùng bài học nhưng dùng PySpark
 ├── scripts/
-│   ├── lakehouse.py            # path helper (lightweight)
-│   ├── generate_data_lite.py   # lightweight Bronze generator
-│   ├── verify_lite.py          # lightweight smoke test
-│   ├── spark_session.py        # Spark factory
-│   ├── generate_data.py        # Spark Bronze generator
-│   └── verify.py               # Spark smoke test
+│   ├── lakehouse.py            # helper tạo đường dẫn cho Lightweight
+│   ├── generate_data_lite.py   # tạo dữ liệu Bronze cho Lightweight
+│   ├── verify_lite.py          # smoke test cho Lightweight
+│   ├── spark_session.py        # tạo Spark session
+│   ├── generate_data.py        # tạo dữ liệu Bronze cho Spark
+│   └── verify.py               # smoke test cho Spark
 └── docker/
-    └── docker-compose.yml      # Spark/MinIO/Jupyter stack
+    └── docker-compose.yml      # stack Spark/MinIO/Jupyter
 ```
 
 ---
 
-## Troubleshooting (lightweight)
+## Lỗi thường gặp khi chạy Lightweight
 
-| Triệu chứng | Fix |
+| Triệu chứng | Cách xử lý |
 |---|---|
-| `make setup` báo `python3: command not found` | Install Python 3.10–3.13 (https://www.python.org/downloads/), hoặc `uv` |
-| `make setup` lỗi build `pyarrow`/`cmake` | Bạn đang dùng Python 3.14 (chưa có wheel). Cài `uv` (tự lấy 3.12) hoặc `python3.12 -m venv .venv` |
-| `make lab` báo "port 8888 in use" | Đổi: `$(JUPYTER) lab --port 8889` trong Makefile |
-| NB2 speedup < 3× | Bình thường nếu RAM < 4 GB — DuckDB cache làm before/after gần nhau. Reset bằng `make clean && make setup`. |
-| NB4 lỗi "Path does not exist" | Quên `make data` |
+| `make setup` báo `python3: command not found` | Cài Python 3.10–3.13 tại https://www.python.org/downloads/ hoặc cài `uv` |
+| `make setup` lỗi build `pyarrow`/`cmake` | Có thể bạn đang dùng Python 3.14. Hãy dùng `uv` để lấy Python 3.12 hoặc chạy `python3.12 -m venv .venv` |
+| `make lab` báo "port 8888 in use" | Đổi port trong Makefile, ví dụ `$(JUPYTER) lab --port 8889` |
+| NB2 speedup < 3× | Có thể do RAM thấp hoặc DuckDB cache làm kết quả trước/sau gần nhau. Thử reset bằng `make clean && make setup` |
+| NB4 báo "Path does not exist" | Bạn có thể đã quên chạy `make data` |
 
 ---
 
-## Submission
+## Nộp bài
 
-Fork repo → push 4 notebook đã chạy + `submission/REFLECTION.md` (≤ 200 words: anti-pattern nào trong slide “Top 5 Lakehouse Anti-Patterns” team bạn dễ vướng nhất, vì sao?). PR back vào upstream với title `[NXX] Lab18 — <Họ Tên>`.
+Fork repo, sau đó push các phần sau:
+
+- 4 notebook đã chạy và còn output.
+- `submission/REFLECTION.md`, tối đa 200 từ. Nội dung: anti-pattern nào trong
+  slide “Top 5 Lakehouse Anti-Patterns” mà team bạn dễ gặp nhất, và vì sao.
+- Ảnh chụp hoặc bằng chứng trong `submission/screenshots/` cho layout
+  `_lakehouse/` và file `_delta_log/*.json` nếu dùng Lightweight.
+
+Sau đó mở PR về upstream với title:
+
+```text
+[2A202600590] Lab18 — Nguyễn Văn Quang
+```
 
 ---
 
-© VinUniversity AICB program. Phỏng theo Track 2 Day 18 slide.
+© VinUniversity AICB program. Nội dung dựa trên slide Track 2 Ngày 18.
